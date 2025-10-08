@@ -21,12 +21,13 @@ compute_fingerprint_string(){ local machine_id="$(cat /etc/machine-id 2>/dev/nul
 derive_flag_from_fingerprint(){ local salt="$1"; local challenge="$2"; local fp; fp="$(compute_fingerprint_string)"; local data="challenge=${challenge}|fingerprint=${fp}"; local mac; mac="$(hmac_sha256_hex "$salt" "$data")"; printf "FLAG{%s}\n" "${mac:0:24}"; }
 
 usage(){ cat <<EOF
-Uso: $0 [-b <base_dir>] [-s <salt>] [-c <challenge>] [-f <secret_path>]
-  -b: base_dir onde está o .fingerprint.json (default: deduzir do arquivo)
-  -s: CTF_SALT (se omitido, tenta ler de .fingerprint.json ou $HOME/.ctf_pinguim.json)
-  -c: CTF_CHALLENGE (idem acima)
-  -f: caminho do secret.txt (se omitido, tenta encontrar com find)
+Uso: $0 [-b <base_dir>]
+  -b: diretório base do ambiente (default: detectar o mais recente 'minicurso-linux-*' em $HOME)
 EOF
+}
+
+detect_base_dir(){
+  find "$HOME" -maxdepth 1 -type d -name 'minicurso-linux-*' -printf '%T@ %p\n' 2>/dev/null | sort -nr | awk 'NR==1{print $2}'
 }
 
 main(){
@@ -35,45 +36,46 @@ main(){
   require_cmd find
 
   local base_dir=""
-  local salt="${CTF_SALT:-}"
-  local challenge="${CTF_CHALLENGE:-}"
-  local secret_path=""
-  while getopts ":b:s:c:f:h" opt; do
+  while getopts ":b:h" opt; do
     case "$opt" in
       b) base_dir="$OPTARG";;
-      s) salt="$OPTARG";;
-      c) challenge="$OPTARG";;
-      f) secret_path="$OPTARG";;
       h) usage; exit 0;;
       :) die "Opção -$OPTARG requer um argumento";;
       *) usage; exit 1;;
     esac
   done
 
-  if [ -z "$base_dir" ]; then base_dir="$(find "$HOME" -maxdepth 2 -type f -name .fingerprint.json -printf '%h\n' 2>/dev/null | head -n1 || true)"; fi
-  [ -n "$base_dir" ] || die "base_dir não encontrado (sem .fingerprint.json)"
+  if [ -z "$base_dir" ]; then base_dir="$(detect_base_dir || true)"; fi
+  [ -n "$base_dir" ] || die "Não foi possível detectar o diretório base. Informe com -b."
+  [ -d "$base_dir" ] || die "Diretório base inválido: $base_dir"
 
+  log "Verificando FLAG no ambiente: $base_dir"
+
+  local salt=""
+  local challenge=""
   if [ -r "$base_dir/.fingerprint.json" ]; then
-    salt="${salt:-$(grep -o '"salt":"[^"]*"' "$base_dir/.fingerprint.json" | cut -d'"' -f4)}"
-    challenge="${challenge:-$(grep -o '"challenge":"[^"]*"' "$base_dir/.fingerprint.json" | cut -d'"' -f4)}"
+    salt="$(grep -o '"salt":"[^"]*"' "$base_dir/.fingerprint.json" | cut -d'"' -f4)"
+    challenge="$(grep -o '"challenge":"[^"]*"' "$base_dir/.fingerprint.json" | cut -d'"' -f4)"
   fi
   if [ -z "$salt" ] && [ -r "$HOME/.ctf_pinguim.json" ]; then salt="$(grep -o '"salt":"[^"]*"' "$HOME/.ctf_pinguim.json" | cut -d'"' -f4)"; fi
   if [ -z "$challenge" ] && [ -r "$HOME/.ctf_pinguim.json" ]; then challenge="$(grep -o '"challenge":"[^"]*"' "$HOME/.ctf_pinguim.json" | cut -d'"' -f4)"; fi
 
-  [ -n "$salt" ] || die "Salt não definido/encontrado"
-  [ -n "$challenge" ] || die "Challenge não definido/encontrado"
-
-  if [ -z "$secret_path" ]; then secret_path="$(find "$base_dir" -type f -name secret.txt -print 2>/dev/null | head -n1 || true)"; fi
-  [ -n "$secret_path" ] || die "secret.txt não encontrado em $base_dir"
+  [ -n "$salt" ] || die "Salt não encontrado (rode novamente o setup)"
+  [ -n "$challenge" ] || die "Challenge não encontrado (rode novamente o setup)"
 
   local expected
   expected="$(derive_flag_from_fingerprint "$salt" "$challenge")"
+
+  local secret_path
+  secret_path="$(find "$base_dir" -type f -name secret.txt -print 2>/dev/null | head -n1 || true)"
+  [ -n "$secret_path" ] || die "Arquivo secreto não encontrado no ambiente"
+
   local got
   got="$(grep -o 'FLAG{[0-9a-f]\{24\}}' "$secret_path" || true)"
 
   log "Esperado: $expected"
-  if [ "$got" = "$expected" ]; then log "OK: secret.txt válido para esta máquina/desafio"; exit 0; fi
-  err "Falha: secret.txt não corresponde (obtido: ${got:-<vazio>})"; exit 2
+  if [ "$got" = "$expected" ]; then log "OK: FLAG válida"; printf "%s\n" "$secret_path"; exit 0; fi
+  err "Falha: FLAG inválida (obtido: ${got:-<vazio>})"; exit 2
 }
 
 main "$@"

@@ -35,103 +35,56 @@ is_wsl(){ grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null; }
 
 main(){
   require_cmd bash
-  require_cmd grep
   require_cmd find
+  require_cmd grep
   require_cmd tar
-  require_cmd base64
   require_one_of_cmds openssl python3
 
-  if ! is_wsl; then log "Aviso: não parece ser WSL; seguindo assim mesmo."; fi
-
-  local base_name=".$(random_letters 6)-$(random_hex 4)"
-  local base_dir="${HOME}/${base_name}"
+  local base_dir="${HOME}/minicurso-linux-$(random_letters 5)"
   mkdir -p "$base_dir"
 
   local challenge="${CTF_CHALLENGE:-UEPA-$(date -u +%Y%m%d)}"
   local salt
   if [[ -n "${CTF_SALT:-}" ]]; then salt="$CTF_SALT"; else salt="$(random_hex 16)"; log "CTF_SALT não informado; gerado automaticamente. Salve para verificação: $salt"; fi
-
   local flag
   flag="$(derive_flag_from_fingerprint "$salt" "$challenge")"
 
   cat >"${base_dir}/README.txt" <<'EOF'
-Objetivo: encontrar o arquivo "secret.txt".
-Regras:
-- Você pode usar qualquer comando do Linux.
-- Explore diretórios, permissões, arquivos ocultos, links, buscas, compressão e conteúdo.
-Dicas gerais:
-- Procure recursivamente com find/grep.
-- Verifique arquivos ocultos (prefixo .).
-- Extraia arquivos .tar.gz.
-- Decodifique conteúdo em base64.
-- Entenda permissões: r (ler), w (escrever), x (executar/listar).
-Boa caçada!
+Objetivo: encontrar o pinguim.
+Sugestão de comandos: ls, cd, mkdir, cat, rm, cp, mv, find, grep, chmod, tar.
+Pistas:
+- Há um diretório oculto (prefixo ".") com um arquivo .tar.gz contendo uma dica.
+- Existe um arquivo com a palavra PINGUIM em algum lugar.
+Boa prática!
 EOF
 
   local -a dirs=()
-  for i in $(seq 1 8); do
-    local d1="$(random_letters 7)"
-    local d2="$(random_letters 7)"
-    local d3="$(random_letters 7)"
-    mkdir -p "${base_dir}/${d1}/${d2}/${d3}"
+  for i in $(seq 1 5); do
+    local d1="$(random_letters 6)"
+    local d2="$(random_letters 6)"
+    mkdir -p "${base_dir}/${d1}/${d2}"
     dirs+=("${base_dir}/${d1}")
     dirs+=("${base_dir}/${d1}/${d2}")
-    dirs+=("${base_dir}/${d1}/${d2}/${d3}")
   done
 
-  local hidden_dir="${base_dir}/.$(random_letters 8)"
+  local hidden_dir="${base_dir}/.$(random_letters 7)"
   mkdir -p "$hidden_dir"
-  local tar_name="$(random_letters 6).tar.gz"
-  create_tar_with_file "${hidden_dir}/${tar_name}" "pista1.txt" "Pista 1: Existe um arquivo de texto em algum lugar contendo a palavra PINGUIM.
-Dica: use grep recursivo para encontrá-lo (ex.: grep -R \"PINGUIM\" .)."
+  mkdir -p "${hidden_dir}/hint"
+  printf "%s\n" "Use 'find' para localizar um arquivo a partir do diretório base." > "${hidden_dir}/hint/dica.txt"
+  tar -C "${hidden_dir}/hint" -czf "${hidden_dir}/DICA_2.tar.gz" "dica.txt"
+  rm -rf "${hidden_dir}/hint"
 
-  for d in "${dirs[@]}"; do make_decoys_in_dir "$d" $((6 + RANDOM % 10)); done
-  make_decoys_in_dir "$hidden_dir" 5
+  for d in "${dirs[@]}"; do
+    for n in 1 2 3; do
+      printf "anotacao %d - %s\n" "$n" "$(date -u +%s)" > "${d}/$(random_letters 5).txt"
+    done
+  done
 
   local idx_ping="$((RANDOM % ${#dirs[@]}))"
-  local dir_with_ping="${dirs[$idx_ping]}"
-  mkdir -p "$dir_with_ping"
+  printf "%s\n" "Hoje é um bom dia para PINGUIM aprender Linux." > "${dirs[$idx_ping]}/diario.md"
 
-  local idx_link="$((RANDOM % ${#dirs[@]}))"
-  local dir_with_symlink="${dirs[$idx_link]}"
-  mkdir -p "$dir_with_symlink"
-
-  local secret_container="${base_dir}/$(random_letters 6)/$(random_letters 6)"
-  mkdir -p "$secret_container"
-
-  local inner_tar="${secret_container}/$(random_letters 5).tar.gz"
-  local clue3_plain="Pista 3: Use 'find' para localizar um arquivo chamado exatamente 'secret.txt' a partir do diretório base desta atividade. Exemplo:
-find . -type f -name secret.txt 2>/dev/null
-Se não estiver no diretório base, navegue até onde começou a dinâmica."
-  local tmpc=""
-  tmpc="$(mktemp -d)"
-  printf "%s" "$clue3_plain" | base64 > "${tmpc}/clue3.b64"
-  tar -C "$tmpc" -czf "$inner_tar" "clue3.b64"
-  rm -rf "$tmpc"
-
-  chmod 111 "$secret_container"
-
-  cat >"${dir_with_ping}/anotacao.txt" <<EOF
-Hoje é um bom dia para pinguins curiosos.
-PINGUIM
-Pista 2: Existe um link simbólico chamado "atalho" em algum lugar. Siga-o.
-Dica: use find para localizar links simbólicos: find . -type l -ls
-EOF
-
-  cat >"${dir_with_ping}/runme.sh" <<'EOF'
-#!/usr/bin/env bash
-echo "Dica extra: verifique permissões de diretórios (ls -ld) e entenda a diferença entre r e x em diretórios."
-EOF
-  chmod +x "${dir_with_ping}/runme.sh"
-
-  ln -s "$secret_container" "${dir_with_symlink}/atalho"
-
-  local deep_a=".$(random_letters 7)"
-  local deep_b="$(random_letters 5) com espacos"
-  local deep_c=".$(random_letters 6)"
-  local final_dir="${base_dir}/${deep_a}/${deep_b}/${deep_c}/$(random_letters 6)"
+  local final_dir="${base_dir}/$(random_letters 6)/$(random_letters 6)/.$(random_letters 6)"
   mkdir -p "$final_dir"
-
   local tpl_path
   tpl_path="$(script_dir)/secret.txt"
   embed_flag_in_template "$tpl_path" "${final_dir}/secret.txt" "$flag"
@@ -152,15 +105,10 @@ EOF
     printf '"challenge":"%s"}' "$challenge"
   } > "$HOME/.ctf_pinguim.json"
 
-  local fake_txt="${base_dir}/$(random_letters 6)/$(random_letters 6).txt"
-  mkdir -p "$(dirname "$fake_txt")"
-  printf "nao-e-texto-de-verdade" | gzip -c > "$fake_txt"
+  printf "%s\n" "Dica rápida: tente 'grep -R PINGUIM .'" > "${base_dir}/LEIA-ME-2.txt"
 
   log "Ambiente criado em: $base_dir"
-  log "Desafio: $challenge"
-  log "Ferramenta de verificação: ${base_dir}/.fingerprint.json (e opcionalmente $HOME/.ctf_pinguim.json)"
-  log "Agora feche este terminal ou comece a dinâmica a partir do seu $HOME."
-  log "Boa sorte aos participantes!"
+  log "Agora pratique com ls, cd, cat, find, grep, chmod e tar."
 
   local repo_root=""
   if repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"; then
@@ -168,7 +116,7 @@ EOF
       log "Removendo repositório clonado: $repo_root"
       cd "$HOME"
       rm -rf --one-file-system -- "$repo_root"
-      log "Repositório removido."
+      log "Repositório removido. Ambiente preservado em: $base_dir"
     fi
   fi
 }
