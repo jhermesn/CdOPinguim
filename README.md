@@ -23,7 +23,7 @@ chmod +x setup.sh verify.sh
 ```bash
 ./setup.sh
 # opcional: fixar rodada/sal para validação posterior (ex.: para sorteio)
-CTF_CHALLENGE="UEPA-2025" CTF_SALT="SALT-SUPER" ./setup.sh
+CTF_CHALLENGE="UEPA-2025" CTF_SALT="SALT-SUPER" sudo ./setup.sh
 ```
 
 3) Verificar (opcional):

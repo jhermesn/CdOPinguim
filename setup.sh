@@ -111,13 +111,26 @@ EOF
   log "Agora pratique com ls, cd, cat, find, grep, chmod e tar."
 
   local repo_root=""
-  if repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"; then
-    if [[ -n "$repo_root" && -d "$repo_root/.git" && "$repo_root" != "/" && "$repo_root" != "$HOME" ]]; then
-      log "Removendo repositório clonado: $repo_root"
-      cd "$HOME"
-      rm -rf --one-file-system -- "$repo_root"
-      log "Repositório removido. Ambiente preservado em: $base_dir"
-    fi
+  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  local script_root
+  script_root="$(script_dir)"
+
+  # Fallbacks: se não conseguir detectar via git, tenta a pasta do script
+  if [[ -z "$repo_root" && -d "$script_root/.git" ]]; then
+    repo_root="$script_root"
+  fi
+  # Último recurso: se a pasta do script se chama CdOPinguim, assume como raiz do repo
+  if [[ -z "$repo_root" && "$(basename "$script_root")" == "CdOPinguim" ]]; then
+    repo_root="$script_root"
+  fi
+
+  if [[ -n "$repo_root" && -d "$repo_root" && "$repo_root" != "/" && "$repo_root" != "$HOME" ]]; then
+    log "Removendo repositório clonado: $repo_root"
+    cd "$HOME"
+    rm -rf --one-file-system -- "$repo_root"
+    log "Repositório removido. Ambiente preservado em: $base_dir"
+  else
+    log "Nenhuma raiz de repositório detectada para remoção; ignorando limpeza."
   fi
 }
 
