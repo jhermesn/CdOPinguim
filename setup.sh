@@ -21,17 +21,24 @@ print(hmac.new(key, data, hashlib.sha256).hexdigest())
 PY
 fi; }
 
+json_escape(){
+  local s="$1"
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$s" <<'PY'
+import sys, json
+s = sys.argv[1]
+print(json.dumps(s)[1:-1])
+PY
+  else
+    printf '%s' "$s" | sed 's/\\/\\\\/g; s/"/\\"/g'
+  fi
+}
+
 compute_fingerprint_string(){ local machine_id="$(cat /etc/machine-id 2>/dev/null || echo no-machine-id)"; local host="$(hostname 2>/dev/null || echo unknown-host)"; local kern="$(uname -r 2>/dev/null || echo unknown-kernel)"; local user_name="${USER:-$(id -un 2>/dev/null || echo user)}"; local distro="unknown"; if [ -r /etc/os-release ]; then . /etc/os-release; distro="${ID:-linux}-${VERSION_ID:-0}"; fi; local wsl="${WSL_DISTRO_NAME:-no}"; printf "host:%s|user:%s|mid:%s|kernel:%s|distro:%s|wsl:%s" "$host" "$user_name" "$machine_id" "$kern" "$distro" "$wsl"; }
 
 derive_flag_from_fingerprint(){ local salt="$1"; local challenge="$2"; local fp; fp="$(compute_fingerprint_string)"; local data="challenge=${challenge}|fingerprint=${fp}"; local mac; mac="$(hmac_sha256_hex "$salt" "$data")" || die "Falha ao gerar HMAC"; printf "FLAG{%s}\n" "${mac:0:24}"; }
 
 embed_flag_in_template(){ local template="$1"; local out="$2"; local flag="$3"; if [ -r "$template" ]; then awk -v repl="$flag" '{gsub(/\{\{SECRET\}\}/, repl); print $0}' "$template" >"$out"; else printf "%s\n" "$flag" >"$out"; fi; }
-
-make_decoys_in_dir(){ local target="$1"; local count="${2:-8}"; mkdir -p "$target"; local -a exts=("txt" "log" "conf" "md" "dat" "" "bak"); for _ in $(seq 1 "$count"); do local name="$(random_letters 6)"; local ext="${exts[$((RANDOM % ${#exts[@]}))]}"; local file="$target/$name"; [[ -n "$ext" ]] && file="$file.$ext"; { for i in $(seq 1 $((3 + RANDOM % 9))); do printf "linha %02d: %s\n" "$i" "$(random_hex 8)"; done; } >"$file"; done; }
-
-create_tar_with_file(){ local tar_path="$1"; local inner="$2"; local content="$3"; local tmpd=""; tmpd="$(mktemp -d)"; printf "%s\n" "$content" >"$tmpd/$inner"; tar -C "$tmpd" -czf "$tar_path" "$inner"; rm -rf "$tmpd"; }
-
-is_wsl(){ grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null; }
 
 main(){
   require_cmd bash
@@ -92,17 +99,19 @@ EOF
 
   local fp_json="${base_dir}/.fingerprint.json"
   {
-    printf '{"base_dir":"%s",' "$base_dir"
-    printf '"flag":"%s",' "$flag"
-    printf '"salt":"%s",' "$salt"
-    printf '"challenge":"%s",' "$challenge"
-    printf '"fingerprint":"%s",' "$(compute_fingerprint_string | sed 's/\\/\\\\/g;s/\"/\\\"/g')"
+    printf '{'
+    printf '"base_dir":"%s",' "$(json_escape "$base_dir")"
+    printf '"flag":"%s",' "$(json_escape "$flag")"
+    printf '"salt":"%s",' "$(json_escape "$salt")"
+    printf '"challenge":"%s",' "$(json_escape "$challenge")"
+    printf '"fingerprint":"%s",' "$(json_escape "$(compute_fingerprint_string)")"
     printf '"algo":"HMAC-SHA256-hex-24"}'
   } > "$fp_json"
 
   {
-    printf '{"salt":"%s",' "$salt"
-    printf '"challenge":"%s"}' "$challenge"
+    printf '{'
+    printf '"salt":"%s",' "$(json_escape "$salt")"
+    printf '"challenge":"%s"}' "$(json_escape "$challenge")"
   } > "$HOME/.ctf_pinguim.json"
 
   printf "%s\n" "Dica rápida: tente 'grep -R PINGUIM .'" > "${base_dir}/LEIA-ME-2.txt"
@@ -110,28 +119,30 @@ EOF
   log "Ambiente criado em: $base_dir"
   log "Agora pratique com ls, cd, cat, find, grep, chmod e tar."
 
+  local cleanup="${CTF_CLEANUP:-0}"
   local repo_root=""
   repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
   local script_root
   script_root="$(script_dir)"
 
-  # Fallbacks: se não conseguir detectar via git, tenta a pasta do script
-  if [[ -z "$repo_root" && -d "$script_root/.git" ]]; then
-    repo_root="$script_root"
-  fi
-  # Último recurso: se a pasta do script se chama CdOPinguim, assume como raiz do repo
-  if [[ -z "$repo_root" && "$(basename "$script_root")" == "CdOPinguim" ]]; then
-    repo_root="$script_root"
-  fi
+  if [[ -z "$repo_root" && -d "$script_root/.git" ]]; then repo_root="$script_root"; fi
+  if [[ -z "$repo_root" && "$(basename "$script_root")" == "CdOPinguim" ]]; then repo_root="$script_root"; fi
 
-  if [[ -n "$repo_root" && -d "$repo_root" && "$repo_root" != "/" && "$repo_root" != "$HOME" ]]; then
-    log "Removendo repositório clonado: $repo_root"
-    cd "$HOME"
-    rm -rf --one-file-system -- "$repo_root"
-    log "Repositório removido. Ambiente preservado em: $base_dir"
-  else
-    log "Nenhuma raiz de repositório detectada para remoção; ignorando limpeza."
-  fi
+  case "$cleanup" in
+    1|true|TRUE|yes|YES|y|Y)
+      if [[ -n "$repo_root" && -d "$repo_root" && "$repo_root" != "/" && "$repo_root" != "$HOME" ]]; then
+        log "Removendo repositório clonado: $repo_root"
+        cd "$HOME"
+        rm -rf --one-file-system -- "$repo_root"
+        log "Repositório removido. Ambiente preservado em: $base_dir"
+      else
+        log "Nenhuma raiz de repositório detectada para remoção; ignorando limpeza."
+      fi
+    ;;
+    *)
+      log "Limpeza do repositório desativada (defina CTF_CLEANUP=yes para habilitar)."
+    ;;
+  esac
 }
 
 main "$@"

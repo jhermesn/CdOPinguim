@@ -16,6 +16,22 @@ print(hmac.new(key, data, hashlib.sha256).hexdigest())
 PY
 fi; }
 
+json_get(){
+  # json_get <path> <key>
+  local path="$1"; local key="$2"
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$path" "$key" <<'PY'
+import sys, json
+path, key = sys.argv[1:3]
+with open(path, 'r', encoding='utf-8') as f:
+    data = json.load(f)
+print(data.get(key, ""))
+PY
+  else
+    grep -o '"'"$key"'":"[^"]*"' "$path" | head -n1 | cut -d'"' -f4
+  fi
+}
+
 compute_fingerprint_string(){ local machine_id="$(cat /etc/machine-id 2>/dev/null || echo no-machine-id)"; local host="$(hostname 2>/dev/null || echo unknown-host)"; local kern="$(uname -r 2>/dev/null || echo unknown-kernel)"; local user_name="${USER:-$(id -un 2>/dev/null || echo user)}"; local distro="unknown"; if [ -r /etc/os-release ]; then . /etc/os-release; distro="${ID:-linux}-${VERSION_ID:-0}"; fi; local wsl="${WSL_DISTRO_NAME:-no}"; printf "host:%s|user:%s|mid:%s|kernel:%s|distro:%s|wsl:%s" "$host" "$user_name" "$machine_id" "$kern" "$distro" "$wsl"; }
 
 derive_flag_from_fingerprint(){ local salt="$1"; local challenge="$2"; local fp; fp="$(compute_fingerprint_string)"; local data="challenge=${challenge}|fingerprint=${fp}"; local mac; mac="$(hmac_sha256_hex "$salt" "$data")"; printf "FLAG{%s}\n" "${mac:0:24}"; }
@@ -54,11 +70,11 @@ main(){
   local salt=""
   local challenge=""
   if [ -r "$base_dir/.fingerprint.json" ]; then
-    salt="$(grep -o '"salt":"[^"]*"' "$base_dir/.fingerprint.json" | cut -d'"' -f4)"
-    challenge="$(grep -o '"challenge":"[^"]*"' "$base_dir/.fingerprint.json" | cut -d'"' -f4)"
+    salt="$(json_get "$base_dir/.fingerprint.json" salt)"
+    challenge="$(json_get "$base_dir/.fingerprint.json" challenge)"
   fi
-  if [ -z "$salt" ] && [ -r "$HOME/.ctf_pinguim.json" ]; then salt="$(grep -o '"salt":"[^"]*"' "$HOME/.ctf_pinguim.json" | cut -d'"' -f4)"; fi
-  if [ -z "$challenge" ] && [ -r "$HOME/.ctf_pinguim.json" ]; then challenge="$(grep -o '"challenge":"[^"]*"' "$HOME/.ctf_pinguim.json" | cut -d'"' -f4)"; fi
+  if [ -z "$salt" ] && [ -r "$HOME/.ctf_pinguim.json" ]; then salt="$(json_get "$HOME/.ctf_pinguim.json" salt)"; fi
+  if [ -z "$challenge" ] && [ -r "$HOME/.ctf_pinguim.json" ]; then challenge="$(json_get "$HOME/.ctf_pinguim.json" challenge)"; fi
 
   [ -n "$salt" ] || die "Salt não encontrado (rode novamente o setup)"
   [ -n "$challenge" ] || die "Challenge não encontrado (rode novamente o setup)"
@@ -79,5 +95,3 @@ main(){
 }
 
 main "$@"
-
-
