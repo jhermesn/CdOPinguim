@@ -90,6 +90,9 @@ EOF
   local idx_ping="$((RANDOM % ${#dirs[@]}))"
   printf "%s\n" "Hoje é um bom dia para PINGUIM aprender Linux." > "${dirs[$idx_ping]}/diario.md"
 
+  local idx_d3="$((RANDOM % ${#dirs[@]}))"
+  printf "%s\n" "secret.txt é o que você está procurando." > "${dirs[$idx_d3]}/.DICA_3.txt"
+
   local final_dir="${base_dir}/$(random_letters 6)/$(random_letters 6)/.$(random_letters 6)"
   mkdir -p "$final_dir"
   local tpl_path
